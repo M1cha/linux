@@ -27,3 +27,9 @@ obj-$(CONFIG_INPUT_APMPOWER)	+= apm-power.o
 obj-$(CONFIG_INPUT_OF_MATRIX_KEYMAP) += of_keymap.o
 obj-$(CONFIG_INPUT_KEYRESET)	+= keyreset.o
 obj-$(CONFIG_INPUT_LID)		+= lid.o
+
+# This configuration variable is used inside the Synaptics
+# rmi4 code.
+obj-$(CONFIG_RMI4_DEV) += rmi4/
+
+obj-$(CONFIG_INPUT_TOUCHPAD) += touchpad/
