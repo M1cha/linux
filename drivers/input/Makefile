@@ -30,6 +30,6 @@ obj-$(CONFIG_INPUT_LID)		+= lid.o
 
 # This configuration variable is used inside the Synaptics
 # rmi4 code.
-obj-$(CONFIG_RMI4_DEV) += rmi4/
+obj-$(CONFIG_RMI4_BUS) += rmi4/
 
 obj-$(CONFIG_INPUT_TOUCHPAD) += touchpad/
