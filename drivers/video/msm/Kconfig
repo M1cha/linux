@@ -226,6 +226,11 @@ config FB_MSM_MIPI_DSI_NT35516
 	bool
 	select FB_MSM_MIPI_DSI
 
+config FB_MSM_MIPI_HITACHI_CMD_720P_PT
+	bool
+	select FB_MSM_MIPI_DSI_RENESAS
+	default n
+
 config FB_MSM_MIPI_DSI_TC358764_DSI2LVDS
 	bool
 	select FB_MSM_MIPI_DSI
@@ -481,6 +486,9 @@ config FB_MSM_MIPI_LGIT_VIDEO_WXGA_PT_PANEL
        bool "MIPI LG Display WXGA PT Panel"
        select FB_MSM_MIPI_LGIT_VIDEO_WXGA_PT
 
+config FB_MSM_MIPI_HITACHI_CMD_720P_PT_PANEL
+	bool "MIPI Hitachi Command 720P PT Panel"
+	select FB_MSM_MIPI_HITACHI_CMD_720P_PT
 
 # end the multiple mipi panels config
 
