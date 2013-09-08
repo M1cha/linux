@@ -1325,7 +1325,8 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		    SOCINFO_VERSION_MINOR(revision) >= 1 &&
 		    (machine_is_apq8064_cdp() ||
 		     machine_is_apq8064_liquid())) ||
-		   SOCINFO_VERSION_MAJOR(revision) > 1) {
+		   (SOCINFO_VERSION_MAJOR(revision) > 1 &&
+            !machine_is_apq8064_mako())) {
 		pr_debug("%s: MBHC mechanical switch available APQ8064 "
 			 "detected\n", __func__);
 		apq8064_hs_detect_use_gpio = 1;
