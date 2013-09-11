@@ -23,8 +23,7 @@ static int ion_user_to_kernel(struct smem_client *client,
 			int fd, u32 offset, struct msm_smem *mem)
 {
 	struct ion_handle *hndl;
-	unsigned long ionflag;
-	size_t len;
+	size_t len = 0;
 	int rc = 0;
 	hndl = ion_import_dma_buf(client->clnt, fd);
 	if (IS_ERR_OR_NULL(hndl)) {
@@ -33,17 +32,7 @@ static int ion_user_to_kernel(struct smem_client *client,
 		rc = -ENOMEM;
 		goto fail_import_fd;
 	}
-	rc = ion_handle_get_flags(client->clnt, hndl, &ionflag);
-	if (rc) {
-		pr_err("Failed to get ion flags: %d", rc);
-		goto fail_map;
-	}
-	rc = ion_phys(client->clnt, hndl, &mem->paddr, &len);
-	if (rc) {
-		pr_err("Failed to get physical address\n");
-		goto fail_map;
-	}
-	mem->kvaddr = ion_map_kernel(client->clnt, hndl, ionflag);
+	mem->kvaddr = ion_map_kernel(client->clnt, hndl);
 	if (!mem->kvaddr) {
 		pr_err("Failed to map shared mem in kernel\n");
 		rc = -EIO;
@@ -72,7 +61,7 @@ static int alloc_ion_mem(struct smem_client *client, size_t size,
 	if (size == 0)
 		goto skip_mem_alloc;
 	flags = flags | ION_HEAP(ION_CP_MM_HEAP_ID);
-	hndl = ion_alloc(client->clnt, size, align, flags);
+	hndl = ion_alloc(client->clnt, size, align, flags, 0);
 	if (IS_ERR_OR_NULL(hndl)) {
 		pr_err("Failed to allocate shared memory = %p, %d, %d, 0x%x\n",
 				client, size, align, flags);
@@ -88,7 +77,7 @@ static int alloc_ion_mem(struct smem_client *client, size_t size,
 	}
 	mem->device_addr = mem->paddr;
 	mem->size = size;
-	mem->kvaddr = ion_map_kernel(client->clnt, hndl, 0);
+	mem->kvaddr = ion_map_kernel(client->clnt, hndl);
 	if (!mem->kvaddr) {
 		pr_err("Failed to map shared mem in kernel\n");
 		rc = -EIO;
