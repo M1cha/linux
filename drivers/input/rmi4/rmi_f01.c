@@ -17,9 +17,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-/* HACK(CMM) */
-#include <linux/gpio.h>
-/* /HACK */
 #include <linux/kernel.h>
 #include <linux/rmi.h>
 #include <linux/slab.h>
@@ -959,22 +956,6 @@ static int rmi_f01_initialize(struct rmi_function_container *fc)
 	ctrl_base_addr += sizeof(union f01_device_control_0);
 
 	data->interrupt_enable_addr = ctrl_base_addr;
-#if 1
-	/* HACK(CMM) Only enable F01 and F11 interrupts
-	   We get alot of interrupts from the firmware section (x34)
-	   that may cause failures during probe.  Until Synaptics fixes
-	   this in the driver we mask it here.
-	*/
-	data->device_control.interrupt_enable[0] = 0x6;
-	retval = rmi_write_block(rmi_dev, ctrl_base_addr,
-	                         data->device_control.interrupt_enable,
-	                         sizeof(u8) *(driver_data->num_of_irq_regs));
-	if (retval < 0) {
-		dev_err(&fc->dev, "Failed to write F01 control interrupt enable register.\n");
-		goto error_exit;
-	}
-	/* End hack */
-#endif
 	retval = rmi_read_block(rmi_dev, ctrl_base_addr,
 			data->device_control.interrupt_enable,
 			sizeof(u8) *(driver_data->num_of_irq_regs));
@@ -1000,10 +981,6 @@ static int rmi_f01_initialize(struct rmi_function_container *fc)
 		return retval;
 	}
 	dev_err(&fc->dev, "Interrupt status after: 0x%02x\n", temp);
-
-	/* HACK(CMM) Enable interrupts */
-	enable_irq(gpio_to_irq(32));
-	/* /HACK */
 
 	retval = rmi_read_block(rmi_dev, fc->fd.query_base_addr,
 				data->basic_queries.regs,
