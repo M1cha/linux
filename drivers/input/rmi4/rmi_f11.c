@@ -78,8 +78,6 @@
 #define DEFAULT_MAX_ABS_MT_TRACKING_ID 10
 #define MAX_NAME_LENGTH 256
 
-extern unsigned int get_suspend_cnt(void);
-
 /* Adding debugfs for flip, clip, offset and swap */
 #ifdef CONFIG_RMI4_DEBUG
 
@@ -543,20 +541,6 @@ struct f11_data {
 #if	RESUME_REZERO
 	u16 rezero_wait_ms;
 	bool rezero_on_resume;
-#define NUM_SYNTH_KEYS_PER_SUSPEND 1
-	bool suspended;
-	int last_finger_pressed_count;
-	int synth_events_sent;
-	/* Suspend start time in jiffies */
-	unsigned long suspend_start_time;
-	/* Delay for synth events after suspend in ms */
-	unsigned int delay_after_suspend_for_synth_event;
-	/* Resume start time in jiffies */
-	unsigned long resume_start_time;
-	/* Delay for real events after resume in ms */
-	unsigned int delay_after_resume_for_real_event;
-	unsigned int movement_seq_cnt;
-	unsigned int last_suspend_cnt;
 #endif
 	struct f11_2d_sensor sensors[F11_MAX_NUM_OF_SENSORS];
 	bool type_b;
@@ -1010,24 +994,12 @@ static void rmi_f11_abs_pos_report(struct f11_data *f11,
 	int w_x, w_y, w_max, w_min, orient;
 	int temp;
 
-	if (finger_state == F11_NO_FINGER) {
-		if (prev_state) {
-			/* this is a release */
-			x = y = z = w_max = w_min = orient = 0;
-
-			/* MT sync between fingers */
-#ifdef CONFIG_RMI4_F11_TYPEB
-			if (!f11->type_b)
-				input_mt_sync(sensor->input);
-#else
-			input_mt_sync(sensor->input);
-#endif
-			sensor->finger_tracker[n_finger] = finger_state;
-			return;
-		} else {
-			/* nothing to report */
-			return;
-		}
+	if (prev_state && !finger_state) {
+		/* this is a release */
+		x = y = z = w_max = w_min = orient = 0;
+	} else if (!prev_state && !finger_state) {
+		/* nothing to report */
+		return;
 	} else {
 		x = ((data->abs_pos[n_finger].x_msb << 4) |
 			data->abs_pos[n_finger].x_lsb);
@@ -1152,17 +1124,6 @@ static int rmi_f11_virtual_button_handler(struct f11_2d_sensor *sensor)
 #else
 #define rmi_f11_virtual_button_handler(sensor)
 #endif
-static int send_synth_key(struct f11_data *f11, u8 finger_pressed_count)
-{
-	if (f11->suspended && (f11->last_suspend_cnt != get_suspend_cnt())
-	    && finger_pressed_count == 0 && (f11->synth_events_sent < NUM_SYNTH_KEYS_PER_SUSPEND)
-	    && !wake_lock_active(&f11->wakelock))
-	{
-		return 1;
-	}
-	return 0;
-}
-
 /* interrupt */
 static void rmi_f11_finger_handler(struct f11_data *f11,
                                    struct f11_2d_sensor *sensor)
@@ -1191,47 +1152,7 @@ static void rmi_f11_finger_handler(struct f11_data *f11,
 		if (sensor->data.rel_pos)
 			rmi_f11_rel_pos_report(sensor, i);
 	}
-
-	/* Check for interrupts while we were suspended .. */
-	if (send_synth_key(f11, finger_pressed_count)) {
-#if defined(ABS_MT_PRESSURE)
-		/* We have to supply the minimum values required to get event through
-		   Android InputEvent layer */
-		input_report_abs(sensor->input, ABS_MT_PRESSURE, 1);
-#endif
-		input_mt_sync(sensor->input);
-		input_sync(sensor->input); /* sync after groups of events */
-
-		input_mt_sync(sensor->input);
-		input_sync(sensor->input); /* sync after groups of events */
-
-		/* Keep track of count of synthesized keys per suspend cycle. */
-		f11->synth_events_sent++;
-
-		pr_info("%s Created synthesized movement event cnt:%d\n",
-		        __func__, f11->synth_events_sent);
-		return;
-	}
-
-	/* CMM Debugging loggging */
-	if (f11->last_finger_pressed_count == 0 && finger_pressed_count != 0) {
-		pr_info("%s Starting movement sequence cnt:%d\n", __func__, f11->movement_seq_cnt);
-	}
-	if (f11->last_finger_pressed_count != 0 && finger_pressed_count == 0) {
-		pr_info("%s Ending movement sequence cnt:%d\n", __func__, f11->movement_seq_cnt);
-		f11->movement_seq_cnt = 0;
-	}
-	if (f11->last_finger_pressed_count == 0 && finger_pressed_count == 0) {
-		pr_info("%s Extraneous event\n", __func__);
-	} else {
-		f11->movement_seq_cnt++;
-	}
-
-	if (finger_pressed_count) {
-		wake_lock_timeout(&f11->wakelock, msecs_to_jiffies(WAKELOCK_TIMEOUT_IN_MS));
-	}
-
-	f11->last_finger_pressed_count = finger_pressed_count;
+	input_report_key(sensor->input, BTN_TOUCH, finger_pressed_count);
 	input_sync(sensor->input);
 }
 
@@ -1872,10 +1793,6 @@ static int rmi_f11_init(struct rmi_function_container *fc)
 	if (rc < 0)
 		goto err_free_data;
 
-	rc = rmi_f11_config(fc);
-	if (rc < 0)
-		goto err_free_data;
-
 	rc = rmi_f11_register_devices(fc);
 	if (rc < 0)
 		goto err_free_data;
@@ -1937,9 +1854,6 @@ static int rmi_f11_initialize(struct rmi_function_container *fc)
 	#ifdef CONFIG_RMI4_F11_TYPEB
 	f11->type_b = pdata->f11_type_b;
 #endif
-	/* Initialize resume real event suppression timeing. */
-	f11->resume_start_time = jiffies;
-	f11->delay_after_resume_for_real_event = 0;
 
 	query_base_addr = fc->fd.query_base_addr;
 	control_base_addr = fc->fd.control_base_addr;
@@ -1978,13 +1892,6 @@ static int rmi_f11_initialize(struct rmi_function_container *fc)
 				"Failed to initialize F11 control params.\n");
 			return rc;
 		}
-
-		/* Configure x and y delta position thresholds */
-		f11->dev_controls.ctrl0_9->regs[2] = pdata->axis_align.delta_X;
-		f11->dev_controls.ctrl0_9->regs[3] = pdata->axis_align.delta_Y;
-		dev_info(&fc->dev, "%s Setting delta x/y %d/%d\n", __func__,
-		         f11->dev_controls.ctrl0_9->regs[2],
-		         f11->dev_controls.ctrl0_9->regs[3]);
 
 		f11->sensors[i].axis_align = pdata->axis_align;
 
@@ -2287,27 +2194,6 @@ int rmi_f11_attention(struct rmi_function_container *fc, u8 *irq_bits)
 	return 0;
 }
 
-#if defined(CONFIG_PM)
-static int rmi_f11_suspend(struct rmi_function_container *fc)
-{
-	struct f11_data *data = fc->data;
-	/* Command register always reads as 0, so we can just use a local. */
-	int retval = 0;
-
-	dev_info(&fc->dev, "Suspending...\n");
-	data->synth_events_sent = 0;
-	data->suspended = 1;
-	/* Record the start suspend time in jiffies */
-	data->suspend_start_time = jiffies;
-	/* HACK(CMM) Move hardcode val into board file */
-	/* Set the delay in ms to suppress synth key events */
-	data->delay_after_suspend_for_synth_event = 250;
-	data->last_suspend_cnt = get_suspend_cnt();
-
-	return retval;
-}
-#endif  /* CONFIG_PM */
-
 #if RESUME_REZERO
 static int rmi_f11_resume(struct rmi_function_container *fc)
 {
@@ -2317,15 +2203,7 @@ static int rmi_f11_resume(struct rmi_function_container *fc)
 	union f11_2d_commands commands = {};
 	int retval = 0;
 
-	/* Record the start suspend time in jiffies */
-	data->resume_start_time = jiffies;
-	/* HACK(CMM) Move hardcode val into board file */
-	/* Set the delay in ms to suppress synth key events */
-	data->delay_after_resume_for_real_event = 250;
-
 	dev_info(&fc->dev, "Resuming...\n");
-	data->suspended = 0;
-
 	if (!data->rezero_on_resume)
 		return 0;
 
@@ -2377,10 +2255,8 @@ static struct rmi_function_handler function_handler = {
 #if	RESUME_REZERO
 #if defined(CONFIG_HAS_EARLYSUSPEND) && \
 			!defined(CONFIG_RMI4_SPECIAL_EARLYSUSPEND)
-	.early_suspend = rmi_f11_suspend,
 	.late_resume = rmi_f11_resume
 #else
-	.suspend = rmi_f11_suspend,
 	.resume = rmi_f11_resume
 #endif  /* defined(CONFIG_HAS_EARLYSUSPEND) && !def... */
 #endif
