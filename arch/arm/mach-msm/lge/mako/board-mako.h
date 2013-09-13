@@ -104,8 +104,8 @@ void apq8064_init_cam(void);
 
 #define GPIO_CAM_I2C_SDA        (12)
 #define GPIO_CAM_I2C_SCL        (13)
-#define GPIO_CAM1_RST_N         (32)
-#define GPIO_CAM2_RST_N         (34)
+#define GPIO_CAM1_RST_N         (-1)
+#define GPIO_CAM2_RST_N         (-1)
 
 #define GPIO_CAM_FLASH_I2C_SDA  (20)
 #define GPIO_CAM_FLASH_I2C_SCL  (21)

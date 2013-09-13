@@ -35,6 +35,8 @@
 
 #include <linux/earlysuspend.h>
 #include <linux/i2c/atmel_mxt_ts.h>
+#include <linux/rmi.h>
+#include <linux/firmware.h>
 #include <mach/board_lge.h>
 #include "board-mako.h"
 
@@ -341,11 +343,125 @@ static struct mxt_platform_data mxt336s_platform_data = {
 	.power_on		= mxt_power_on,
 };
 
+
+static unsigned char rmi_key_map[] = {KEY_MENU, KEY_HOME, KEY_BACK};
+
+static struct rmi_button_map rmi_button_map_s3202 = {
+	.nbuttons		= 3,
+	.map			= rmi_key_map,
+};
+
+/*static struct rmi_f54_self_test_data rmi_self_test_data []= {
+	{min_max, sizeof(min_max)},
+	{full_raw_capacitance, sizeof(full_raw_capacitance)},
+	{high_resistance, sizeof(high_resistance)},
+};*/
+
+#define TP_GPIO_POWER			PM8921_GPIO_PM_TO_SYS(5)
+#define TP_GPIO_RESET			PM8921_GPIO_PM_TO_SYS(8)
+#define TP_GPIO_INTR			6
+#define TP_GPIO_LCD			PM8921_GPIO_PM_TO_SYS(12)
+
+static int rmi_power_on(bool on)
+{
+	gpio_set_value(TP_GPIO_POWER, on != false);
+	msleep(100);
+	return 0;
+}
+
+static int rmi_gpio_config(void *gpio_data, bool configure)
+{
+	int error = 0;
+
+	if (configure) {
+		error = gpio_request(TP_GPIO_POWER, "rmi4_gpio_power");
+		if (!error) {
+			error = gpio_direction_output(TP_GPIO_POWER, 0);
+			if (error) {
+				gpio_free(TP_GPIO_POWER);
+				pr_err("%s: unable to set direction gpio %d\n",
+				__func__, TP_GPIO_POWER);
+				return error;
+			}
+		} else {
+			pr_err("%s: unable to request power gpio %d\n",
+			__func__, TP_GPIO_POWER);
+			return error;
+		}
+		error = gpio_request(TP_GPIO_INTR, "rmi_intr");
+		if (error < 0) {
+			pr_err("%s: gpio_request fail", __func__);
+			return error;
+		}
+
+		error = gpio_direction_input(TP_GPIO_INTR);
+		if (error < 0) {
+			pr_err("%s: gpio_direction_input fail", __func__);
+			gpio_free(TP_GPIO_INTR);
+			return error;
+		}
+
+		rmi_power_on(true);
+	} else {
+		rmi_power_on(false);
+		gpio_free(TP_GPIO_INTR);
+		gpio_free(TP_GPIO_POWER);
+	}
+
+	return error;
+}
+
+/* add built-in firmware to the kernel */
+#include "rmi_firmware_tpk_ito_aries_p1.h"
+#include "rmi_firmware_tpk_ito_aries_p2.h"
+#include "rmi_firmware_tpk_ito_aries_BM001.h"
+#define TPK_FIRMWARE_P1_NAME	"rmi4/s3202_ver5.img"
+#define TPK_FIRMWARE_P2_NAME	"rmi4/S3202_ver5.img"
+#define TPK_FIRMWARE_BM001_NAME	"rmi4/BM001.img"
+DECLARE_BUILTIN_FIRMWARE(TPK_FIRMWARE_P1_NAME, rmi_firmware_tpk_ito_p1);
+DECLARE_BUILTIN_FIRMWARE(TPK_FIRMWARE_P2_NAME, rmi_firmware_tpk_ito_p2);
+DECLARE_BUILTIN_FIRMWARE(TPK_FIRMWARE_BM001_NAME, rmi_firmware_tpk_ito_BM001);
+
+static struct rmi_device_platform_data rmi_data = {
+	.driver_name		= "rmi_generic",
+	.sensor_name		= "s3202",
+	.attn_gpio		= TP_GPIO_INTR,
+	.attn_polarity		= RMI_ATTN_ACTIVE_LOW,
+	.level_triggered	= true,
+	.gpio_config		= rmi_gpio_config,
+	/*.axis_align		= {
+	    .flip_x			= 1,
+	    .flip_y			= 1,
+	    .staying_threshold	= 12,
+	    .landing_threshold	= 24,
+	    .landing_jiffies	= HZ/8,
+	},*/
+	.reset_delay_ms		= 65,
+	//.touch_info		= 3,
+	.power_management	= {
+	    .nosleep		= RMI_F01_NOSLEEP_ON,
+	},
+	.f1a_button_map		= &rmi_button_map_s3202,
+	//.self_test_data		= rmi_self_test_data,
+};
+
 static struct i2c_board_info mxt336s_device_info[] = {
 	[0] = {
 		I2C_BOARD_INFO("atmel_mxt_ts", 0x4b),
 		.platform_data = &mxt336s_platform_data,
 		.irq = MSM_GPIO_TO_INT(ATMEL_TS_I2C_INT_GPIO),
+	},
+    [1] = {
+		I2C_BOARD_INFO("rmi_i2c", 0x22),
+		.platform_data = &rmi_data,
+	},
+	[2] = {
+		I2C_BOARD_INFO("rmi_i2c", 0x20),
+		.platform_data = &rmi_data,
+	},
+    [3] = {
+		I2C_BOARD_INFO("rmi_i2c", 0x70),
+		.platform_data = &rmi_data,
 	},
 };
 
@@ -355,4 +471,8 @@ void __init apq8064_init_input(void)
 	       __func__);
 	i2c_register_board_info(APQ8064_GSBI3_QUP_I2C_BUS_ID,
 				&mxt336s_device_info[0], 1);
+/*	i2c_register_board_info(APQ8064_GSBI3_QUP_I2C_BUS_ID,
+				&mxt336s_device_info[1], 1);*/
+	i2c_register_board_info(APQ8064_GSBI3_QUP_I2C_BUS_ID,
+				&mxt336s_device_info[3], 1);
 }
