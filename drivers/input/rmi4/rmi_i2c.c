@@ -223,9 +223,8 @@ static int rmi_i2c_read(struct rmi_phys_device *phys, u16 addr, u8 *buf)
 
 static int acquire_attn_irq(struct rmi_i2c_data *data)
 {
-	const char *name = "touchpad";
 	return request_threaded_irq(data->irq, NULL, rmi_i2c_irq_thread,
-	                     data->irq_flags, name, data->phys);
+			data->irq_flags, dev_name(data->phys->dev), data->phys);
 }
 
 static int enable_device(struct rmi_phys_device *phys)
@@ -281,18 +280,6 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 		pdata->sensor_name ? pdata->sensor_name : "-no name-",
 		client->addr, pdata->attn_gpio);
 
-#if 0
-	if (pdata->gpio_config) {
-		dev_info(&client->dev, "Configuring GPIOs.\n");
-		error = pdata->gpio_config(pdata->gpio_data, true);
-		if (error < 0) {
-			dev_err(&client->dev, "Failed to configure GPIOs, code: %d.\n",
-				error);
-			return error;
-		}
-		dev_info(&client->dev, "Done with GPIO configuration.\n");
-	}
-#endif
 	error = i2c_check_functionality(client->adapter, I2C_FUNC_I2C);
 	if (!error) {
 		dev_err(&client->dev, "i2c_check_functionality error %d.\n",
@@ -354,19 +341,6 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 		goto err_gpio;
 	}
 	i2c_set_clientdata(client, rmi_phys);
-
-	/* CMM Moved */
-	if (pdata->gpio_config) {
-		dev_info(&client->dev, "Configuring GPIOs.\n");
-		error = pdata->gpio_config(pdata->gpio_data, true);
-		if (error < 0) {
-			dev_err(&client->dev, "Failed to configure GPIOs, code: %d.\n",
-				error);
-			return error;
-		}
-		dev_info(&client->dev, "Done with GPIO configuration.\n");
-	}
-	/* /CMM */
 
 	if (pdata->attn_gpio > 0) {
 		error = acquire_attn_irq(data);
